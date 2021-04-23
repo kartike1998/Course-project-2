@@ -1,0 +1,248 @@
+---
+title: "Tornadoes and floods most calamitous natural events in the US"
+author: "Kartike Bhardwaj"
+output: 
+    html_document:
+        df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+# Synopsis
+> This study analyses the weather event data available from the US National Oceanic and Atmospheric Administration to find the natural disaster type most harmful for public health and economy in the United States. I used the raw .csv file available from the website and processed it in R to obtain a clean dataset. This involved subsetting the required data, correcting the data types for the different variables, deciding on a criteria for selecting the sample data, and then extracting the data for further analysis. I then grouped the data by event type and separately observed three different metrics: fatalities, injuries and damage to property. Plotting these parameters against the event types led to two major inferences: tornadoes lead to the most number of deaths and injuries of all events, and floods cause the highest damage to property out of all natural disasters in the United States. This knowledge could be beneficial in informing policy decisions and disaster mitigation strategies in susceptible areas in the country.
+
+# Introduction
+***
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+## Objectives
+This report addresses the following questions:
+
+1. Across the United States, which types of events (as indicated in the 'EVTYPE' variable) are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences?
+
+## Data
+The data for this assignment come in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. The file can be downloaded from the course web site:
+
+* [Storm Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) [47Mb]
+
+There is also some documentation of the database available at these links. It contains information on how some of the variables are constructed/defined.
+
+* National Weather Service [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+* National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+The events in the database start in the year 1950 and end in November 2011. In the earlier years of the database there are generally fewer events recorded, most likely due to a lack of good records. More recent years are more complete. Starting 1996, the database has records of all 48 event types.
+
+# Data Processing
+***
+The raw data available from the NOAA Storm Database is messy. In the first part of my 
+project, I processed the raw data and made it suitable for analysis.
+
+## Loading the data
+The raw data file is named "repdata_data_StormData.csv.bz2" (it is a zip file). It was loaded into the R environment using the **read.csv()** function.
+```{r eval=FALSE}
+data_full <- read.csv("repdata_data_StormData.csv.bz2")
+```
+
+## Extracting the useful data
+```{r results='hold'}
+format(object.size(data_full), units = "Mb")
+ncol(data_full)
+```
+The `data_full` object has a size of 471.4 Mb, which is very large. It contains 37 columns out of which only 7 are needed for our analysis. Thus to reduce computation times, I copied only the required fields from `data_full` into a new data frame called `data_raw` which I used for subsequent tidying steps.
+
+```{r cache=TRUE}
+data_raw <- data_full[, c(1:2, 8, 23:26)]
+```
+
+The structure of `data_raw` can be displayed using the **str()** function.
+```{r}
+str(data_raw)
+```
+
+## Tidying up the dates
+I knew that the dataset records all types of events only after 1996. So I considered only studying the data starting 1996. To check whether this was acceptable, I needed to analyse the data by year. But the 'BGN_DATE' field is *chr* type in `data_raw`. So I had to change it to type *Date*.
+I copied `data_raw` into a new data frame called `data_clean`. This object will hold the clean data after processing. I added a new column called 'YEAR' to `data_clean` which contained the year of the event obtained from 'BGN_DATE' using the **format()** function.
+```{r}
+data_clean <- data_raw
+data_clean$YEAR <- format(as.Date(data_raw$BGN_DATE, "%m/%d/%Y %H:%M:%S"), "%Y")
+```
+
+## Sampling by year
+I wanted to check if I could only study the data collected after 1996 and still get a useful result. So I calculated how many events were reported after 1996. For this, I created a table of the 'YEAR' column named `year_table` and used **sum()** to get the percentage of weather events which occurred before 1996.
+```{r}
+year_table <- table(data_clean$YEAR)
+sum(year_table[1:which(names(year_table) == "1996")-1])*100/sum(year_table)
+```
+Only about 27% of the entries are from before 1996. So we can safely remove these from our sample before carrying out the analysis.
+```{r}
+data_clean <- data_clean[data_clean$YEAR >= 1996, ]
+```
+
+## Cleaning 'EVTYPE'
+I observed that the 'EVTYPE' column in `data_clean` contained 500+ unique entries! The NOAA officially identifies only 48 types of weather events. The rest of the values in 'EVTYPE' are typos.
+```{r}
+length(unique(data_clean$EVTYPE))
+```
+Hence, it is necessary to clean the dataset to obtain the valid entries from the dataset.
+
+### Step 1
+In the first step, I changed all entries from the 'EVTYPE' column to UPPERCASE to get rid of some incorrect values.
+```{r}
+data_clean$EVTYPE <- toupper(data_clean$EVTYPE)
+length(unique(data_clean$EVTYPE))
+```
+I could see that this reduced the number of unique types of events recorded in the dataset.
+
+### Step 2
+In the next step, I decided to select only the event types which had occurred a significant number of times. 
+
+I created a table of the 'EVTYPE' column named `event_table` and passed it to sum to get the total number of entries in our working dataset. I also used the **summary()** function to get an idea of the frequency distribution of 'EVTYPE'.
+```{r results="hold"}
+event_table <- table(data_clean$EVTYPE)
+sum(event_table)
+summary(as.numeric(event_table))
+```
+Since the median value for entries for a given event is only 2, which is very small in comparison to the mean and the maximum, I decided to impute all records for events which have less than 100 entries each. I checked how many such entries were present.
+```{r}
+sum(event_table[event_table<101])
+```
+This is very small in comparison to the total number of records, so I decided I could discard these events without affecting the size of my `data_clean` dataset.
+```{r}
+event_table <- event_table[event_table>100]
+```
+I then used **summary()** again to get the spread of the imputed `event_table`.
+```{r}
+summary(as.numeric(event_table))
+```
+The third quartile is 3478, which again is much smaller than the mean and the maximum. Hence I decided to check the number of records which will be lost if I discard all events below 3500 entries each.
+```{r}
+sum(event_table[event_table<3500])
+```
+This too is very small in comparison to the total number of records. Hence I can safely impute these records without significant loss of my sample data.
+```{r results="hold"}
+event_table <- event_table[event_table>3500]
+```
+
+The imputed final `event_table` contains 16 different types of weather events having a significant number of entries for each type.
+```{r}
+print(event_table)
+length(event_table)
+```
+
+### Step 3
+Now, I selected a subset of the data pertaining to these 16 event types and stored it in the `data_clean` object.
+```{r results="hold"}
+data_clean <- data_clean[data_clean$EVTYPE %in% names(event_table), ]
+nrow(data_clean)
+nrow(data_clean)*100/nrow(data_raw)
+```
+The sample dataset now contained 614741 records, which is roughly equal to 68% of the original data. Therefore, I had a remarkably good sample size for my exploration even after imputing the undesired entries.
+
+### Step 4
+In the final step of this part of the processing, I tidied my sample data `data_clean. In its present state, the data frame has 16 unique event types recorded in the 'EVTYPE' field. Two of these, 'TSTM WIND' and 'MARINE TSTM WIND' are misspellings of 'THUNDERSTORM WIND' and 'MARINE THUNDERSTORM WIND' respectively. The rest are officially recognized as distinct event types by the NOAA. To clean this up, I used the **gsub()** function to replace the misspellings with the correct labels.
+```{r}
+data_clean$EVTYPE <- gsub("TSTM", "THUNDERSTORM", data_clean$EVTYPE)
+```
+Looking at `event_table` again, we can see that clean dataset now contained 14 distinct event types, and the number of records pertaining to each had changed.
+```{r}
+event_table <- table(data_clean$EVTYPE)
+print(event_table)
+```
+
+## Calculating property damage
+In this final data processing step, I wanted to represent numerically the property damage caused by each event. This was given in the dataset as a combination of the mantissa and the exponent of damage in dollars.
+To convert this to numeric, I first checked the types of exponent present in the 'PROPDMGEXP' column and their frequency.
+```{r}
+table(data_clean$PROPDMGEXP)
+```
+
+I then created a new header 'PROPMULT' to hold the numeric value of the exponent and multiply it with the mantissa to obtain the damage quantity. Note that all values other than 'K', 'M' and 'B' will be changed to NA.
+```{r}
+data_clean$PROPMULT <- c('K' = 1e+3, 'M' = 1e+6, 'B' = 1e+9)[data_clean$PROPDMGEXP]
+```
+
+In a new variable 'PROPMAG' I stored the magnitude of the damage caused, obtained by multiplying the value of 'PROPDMG' with 'PROPMULT'. I also replaced all NAs with 0.
+```{r}
+data_clean$PROPMAG <- data_clean$PROPDMG*data_clean$PROPMULT
+data_clean$PROPMAG[is.na(data_clean$PROPMAG)] <- 0
+```
+
+Finally, I obtained a clean sample dataset for my analysis.
+
+# Results
+***
+The clean dataset now looks like this.
+```{r}
+str(data_clean)
+```
+
+## Collapsing the data frame
+I wanted to study the effects of different event types on public health and the economic losses sustained due to these disasters. To measure those quantities, I needed to analyse the data by type of event. So I grouped the data by 'EVTYPE' and stored the sum of all 'FATALITIES', 'INJURIES' and 'PROPMAG' by event type into a new data frame called `dmg_data`.
+
+To do this, I used the **collap()** function from the **collapse** package. The resulting `dmg_data` object is presented below.
+```{r warning=FALSE, message=FALSE, rows.print=14}
+library(collapse)
+dmg_data <- collap(data_clean, FATALITIES + INJURIES + PROPMAG ~ EVTYPE, sum)
+dmg_data
+```
+*The display format has been modified to be more readable.*
+
+## Analysing the event data
+I plotted the number of health incidents caused by each event type on a graph to visualize the effect of each event on public health in the United States.
+
+### Fatalities
+I ordered the data in `dmg_data` in decreasing order of 'FATALITIES' and copied this to `plot_data`. I then used the **barplot()** function to make a bar graph of the fatality count.
+```{r fig.width = 11, fig.height = 8}
+plot_data <- dmg_data[order(-dmg_data$FATALITIES), ]
+par(mar = c(9, 4, 4, 2))
+barplot(plot_data$FATALITIES, names.arg = gsub(" ", "\n", plot_data$EVTYPE), main = "Total number of fatalities by event type starting 1996", las = 2)
+```
+
+It can be seen that 'TORNADO' lead to the highest number of fatalities in the US. The exact share is given by:
+```{r}
+plot_data$FATALITIES[1]*100/sum(plot_data$FATALITIES)
+```
+Tornadoes account for nearly a third of all deaths due to natural disasters.
+
+### Injuries
+Here, I ordered the data in `dmg_data` in decreasing order of 'INJURIES' and copied this once more to `plot_data`. I then used the **barplot()** function again to make a bar graph of the injured persons count.
+```{r fig.width = 11, fig.height = 8}
+plot_data <- dmg_data[order(-dmg_data$INJURIES), ]
+par(mar = c(9, 4, 4, 2))
+barplot(plot_data$INJURIES, names.arg = gsub(" ", "\n", plot_data$EVTYPE), main = "Total number of injuries by event type starting 1996", las = 2)
+```
+
+We see again that tornadoes account for the biggest share of injuries from weather events. The exact percentage is:
+```{r}
+plot_data$INJURIES[1]*100/sum(plot_data$INJURIES) #Tornado 48.1%
+```
+This means that tornadoes account for nearly half of all injuries suffered in the United States due to weather events.
+
+### Economic losses
+Finally, to find the natural disaster most damaging to property, I ordered the data in `dmg_data` in decreasing order of 'PROPMAG' and copied this to `plot_data`. I then used **barplot()** one more time to make a bar graph of the damage to property.
+```{r fig.width = 11, fig.height = 8}
+plot_data <- dmg_data[order(-dmg_data$PROPMAG), ]
+par(mar = c(9, 4, 4, 2))
+barplot(plot_data$PROPMAG/1e+9, names.arg = gsub(" ", "\n", plot_data$EVTYPE), main = "Total damage to property (monetary) by event type starting 1996", ylab = "Property damage in billion dollars", las = 2)
+```
+
+Here we find that 'FLOOD' cause exceptionally huge property damages out of all event types. The percentage share is:
+```{r}
+plot_data$PROPMAG[1]*100/sum(plot_data$PROPMAG)
+```
+That is, floods account for more than two-thirds of the total economic damages arising due to natural disasters.
+
+## Conclusions
+The analysis as presented above led me to two significant conclusions:
+
+1. Tornadoes cause the highest damage to public health in the US, out of all types of weather events. They are responsible for almost a third (32.7%) of the deaths and almost half (48.1%) of all injuries caused by such disasters. Thus it could be very useful to focus on rescuing people in areas struck by tornadoes to prevent deaths. Evacuating people before disaster strikes and providing relief to injured victims would also be most beneficial for public health in disaster prone areas.
+
+2. Floods account for the mammoth share of economic losses due to natural disasters in the US. More than two-thirds (66.9%) of all damages sustained to property during weather events are due to floods. Therefore, the maximum economic losses could be avoided by adopting flood-proof measures and implementing flood-safety policies in high-risk areas.
+
+I hope that this analysis will prove useful in the formation of disaster prevention strategy and reduce the impact of these events on the health and lives of our citizens.
