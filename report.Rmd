@@ -45,7 +45,7 @@ project, I processed the raw data and made it suitable for analysis.
 
 ## Loading the data
 The raw data file is named "repdata_data_StormData.csv.bz2" (it is a zip file). It was loaded into the R environment using the **read.csv()** function.
-```{r eval=FALSE}
+```{r data_load_chunk, eval=FALSE}
 data_full <- read.csv("repdata_data_StormData.csv.bz2")
 ```
 
